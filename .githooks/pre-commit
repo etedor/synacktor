@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+"""Update the CalVer string in a file with today's date."""
+
+import re
+import shlex
+import subprocess as sp
+import sys
+from datetime import date
+from pathlib import Path, PurePath
+from typing import Tuple
+
+
+def _subprocess(args: str) -> Tuple[str, str, int]:
+    """Execute a child program in a new process.
+
+    Args:
+        args (str): A string of program arguments.
+
+    Returns:
+        Tuple[str, str, int]: The program's stderr, stdout, and return code.
+
+    """
+    args = shlex.split(args)
+    p = sp.Popen(args, stdout=sp.PIPE, stderr=sp.PIPE)
+    stdout, stderr = p.communicate()
+    rc = p.returncode
+    return str(stdout), str(stderr), rc
+
+
+def commit_count(since: str = "00:00") -> int:
+    """Count the number commit objects since the specified time.
+
+    Args:
+        since (str): Count the commits newer than `since`.
+
+    Returns:
+        int: Number of commit objects since the specified time.
+
+    """
+    args = f"git rev-list origin/master --count --since '{since}'"
+    stdout, stderr, rc = _subprocess(args)
+    if "not a git repository" in stderr.lower():
+        count = 0
+        return count
+    count = int(stdout)
+    return count
+
+
+def git_add(pathspec: str) -> None:
+    """Add file contents to the index.
+
+    Args:
+        pathspec (str): Files to add content from.
+
+    """
+    args = f"git add {pathspec}"
+    _subprocess(args)
+
+
+def replace(file: str, pattern: str, replacement: str) -> bool:
+    """Substitute a pattern in a file with a given replacement.
+
+    Args:
+        file (str): The file that will be operated on.
+        pattern (str): The pattern that will be replaced.
+        replacement (str): The substitute for the pattern.
+
+    Returns:
+        bool: False if there was an error updating the file, else True.
+
+    """
+    try:
+        with open(file, "r+", newline="") as f:
+            updated = re.sub(pattern, replacement, f.read())
+            f.seek(0)
+            f.write(updated)
+            f.truncate()
+    except OSError as e:
+        name = PurePath(file).name
+        print(f"error updating {name}: {str(e)}", file=sys.stderr)
+        return False
+    return True
+
+
+def update_version(file: str, increment: int = 0) -> None:
+    """Find a CalVer string in a file and replace it with today's date.
+
+    A micro-version will be added based on the number of commits made today.
+
+    Args:
+        file (str): The file that contains a CalVer string.
+        increment (int): Amount to increment the micro-version by.
+
+    See Also:
+        https://calver.org/
+
+    """
+    pattern = r"\d{4}\.\d{2}\.\d{2}(\.\d+)?"
+    version = date.today().strftime(r"%Y.%m.%d")
+    micro = commit_count(since="00:00") + increment
+    if micro:
+        version += f".{micro}"
+    if replace(file, pattern, version):
+        git_add(file)
+
+
+def main() -> None:
+    p = Path(__file__)
+    repo_dir = p.resolve().parents[1]
+    module = repo_dir.stem
+    update_version(repo_dir / "source" / module / "SynAcktor.py", increment=1)
+    update_version(repo_dir / "source" / module / "synscan.py", increment=1)
+    update_version(repo_dir / "build.sh", increment=1)
+
+
+if __name__ == "__main__":
+    main()
