@@ -4,7 +4,7 @@
 
 ## Overview
 
-**SynAcktor** is an Arista [EOS extension](https://www.arista.com/en/um-eos/eos-section-6-6-managing-eos-extensions) that monitors TCP services and reacts to changes in service availability. SynAcktor can be configured to remove (static) routes to hosts with unavailable services, while still being able to watch for service restoration at a configurable interval.
+**SynAcktor** is an Arista [EOS extension](https://www.arista.com/en/um-eos/eos-managing-eos-extensions) that monitors TCP services and reacts to changes in their availability. SynAcktor uses crafted packets to probe a host, even without a locally configured route. SynAcktor can execute arbitrary changes to a switch's configuration based on service availability -- e.g., remove and restore (static) routes to a monitored host.
 
 ### Flow
 
@@ -39,24 +39,23 @@ sequenceDiagram
     end
 ```
 
-
 ## Installation
 
-SynAcktor is [installed](https://www.arista.com/en/um-eos/eos-section-6-6-managing-eos-extensions) as an EOS extension.
+SynAcktor is [installed](https://www.arista.com/en/um-eos/eos-managing-eos-extensions) as an EOS extension.
 
 * Download the latest RPM from the [Releases](https://github.com/etedor/synacktor/releases) page.
 * Copy the RPM to the device's flash storage (`/mnt/flash`).
 * Copy the RPM from the flash storage to the extensions partition.
 
   ```other
-  switch#copy flash:SynAcktor-2020.08.06-1.noarch.rpm extension:
+  switch#copy flash:SynAcktor-2023.06.05-3.noarch.rpm extension:
   Copy completed successfully.
   ```
 
 * Install the extension.
 
   ```other
-  switch#extension SynAcktor-2020.08.06-1.noarch.rpm
+  switch#extension SynAcktor-2023.06.05-3.noarch.rpm
   If this extension modifiers the behavior of the Cli, any running Cli sessions will
   need to be reset in order for the Cli modifications to take effect.
   ```
@@ -73,20 +72,36 @@ SynAcktor is configured as an EOS daemon.
 
 ### Example
 
-```other
-daemon SynAcktor
-   exec /usr/local/bin/SynAcktor
-   option conf-fail value /mnt/flash/fail.conf
-   option conf-recover value /mnt/flash/recover.conf
-   option dport value 443
-   option hold-down value 3
-   option hold-up value 1
-   option interval value 3
-   option ip value 198.51.100.99
-   option nexthop value 192.0.2.2
-   option vrf value WEB
-   no shutdown
-```
+* Create a configuration file to use when the monitored service is unavailable (failed).
+
+  ```other
+  switch#bash vi /mnt/flash/fail.conf
+  no ip route vrf WEB 198.51.100.99/32
+  ```
+
+* Create a configuration file to use when the monitored service is available (recovered).
+
+  ```other
+  switch#bash vi /mnt/flash/recover.conf
+  ip route vrf WEB 198.51.100.99/32
+  ```
+
+* Configure the daemon from configuration mode.
+
+  ```other
+  daemon SynAcktor
+     exec /usr/local/bin/SynAcktor
+     option conf-fail value /mnt/flash/fail.conf
+     option conf-recover value /mnt/flash/recover.conf
+     option dport value 443
+     option hold-down value 3
+     option hold-up value 1
+     option interval value 3
+     option ip value 198.51.100.99
+     option nexthop value 192.0.2.2
+     option vrf value WEB
+     no shutdown
+  ```
 
 ### Options
 

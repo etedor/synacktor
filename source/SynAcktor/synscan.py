@@ -2,7 +2,6 @@
 
 from __future__ import print_function
 
-# import argparse  # imported if __name__ == "__main__"
 import binascii
 import os
 import random
@@ -23,7 +22,7 @@ from ctypes import (
 )
 from ctypes.util import find_library
 
-__version__ = "2020.04.09.1"
+__version__ = "2023.06.05.0"
 
 # linux/sched.h
 CLONE_NEWNET = 0x40000000
@@ -40,7 +39,7 @@ PROTO_TCP = 6
 
 def errcheck(rc, func, args):
     if rc:
-        raise Exception("Unable to enter namespace (are you root?)")
+        raise RuntimeError("Unable to enter namespace (are you root?)")
 
 
 LIBC = CDLL(find_library("c"), use_errno=True)
@@ -57,7 +56,7 @@ sip="${route[__VERSION__]}"
 echo -n "${intf} ${dmac} ${smac} ${sip}"
 """
 
-# VERSION = None  # declared in scan()
+VERSION = None  # declared in scan()
 
 
 class Header(BigEndianStructure):
@@ -109,11 +108,7 @@ class Ethernet(Header):
 
     @classmethod
     def from_args(cls, dmac, smac, ethertype):
-        return cls.from_buffer_copy(
-            struct.pack(
-                "!6s6sH", cls.mac_to_bytes(dmac), cls.mac_to_bytes(smac), ethertype,
-            )
-        )
+        return cls.from_buffer_copy(struct.pack("!6s6sH", cls.mac_to_bytes(dmac), cls.mac_to_bytes(smac), ethertype,))
 
     @staticmethod
     def mac_to_bytes(mac):
@@ -208,15 +203,7 @@ class IPv6(Header):
 
     @classmethod
     def from_args(
-        cls,
-        _version=0x6,
-        _tclass=0x0,
-        _flow=0x0,
-        _plen=0x14,
-        _nxt=PROTO_TCP,
-        _hlim=0x0,
-        sip="::1",
-        dip="::1",
+        cls, _version=0x6, _tclass=0x0, _flow=0x0, _plen=0x14, _nxt=PROTO_TCP, _hlim=0x0, sip="::1", dip="::1",
     ):
         shi, slo = struct.unpack("!QQ", socket.inet_pton(socket.AF_INET6, sip))
         dhi, dlo = struct.unpack("!QQ", socket.inet_pton(socket.AF_INET6, dip))
@@ -322,9 +309,7 @@ class Packet(object):
     def __init__(self, dmac, smac, sip, dip, sport, dport):
         IP = IPv4 if VERSION == 4 else IPv6
 
-        self.eth = Ethernet.from_args(
-            dmac=dmac, smac=smac, ethertype=ETH_P_IP if VERSION == 4 else ETH_P_IPV6,
-        )
+        self.eth = Ethernet.from_args(dmac=dmac, smac=smac, ethertype=ETH_P_IP if VERSION == 4 else ETH_P_IPV6,)
         self.ip = IP.from_args(sip=sip, dip=dip)
         self.tcp = TCP.from_args(sport=sport, dport=dport)
 
@@ -423,6 +408,15 @@ class VRF(object):
             raise AttributeError(e.message)
 
 
+def _subprocess(args, raise_for_status=True):
+    p = sp.Popen(args, stdout=sp.PIPE, stderr=sp.PIPE, shell=True)
+    stdout, stderr = p.communicate()
+    if p.returncode and raise_for_status:
+        cmd = args.split()[0]
+        raise sp.CalledProcessError("Command '%s' returned non-zero exit status %d" % (cmd, p.returncode))
+    return stdout, stderr
+
+
 def attach_bpf(eth, ip, tcp, sock):
     """Attach a filter to a raw socket.
 
@@ -466,16 +460,16 @@ def attach_bpf(eth, ip, tcp, sock):
         # #!/usr/bin/env bash
         # export E="ether src DMAC && ether dst SMAC"
         # export I="ip && src DIP && dst SIP"
-        # export T="t && src port DPORT && dst port SPORT"
+        # export T="tcp && src port DPORT && dst port SPORT"
         # paste -d"\n" \
         #     <(tcpdump -d "${E} && ${I} && ${T}" | sed -e 's/^/# /') \
         #     <(tcpdump -dd "${E} && ${I} && ${T}" | sed -e 's/{ /(/;s/ }/)/')
         instructions = [
-            # smac matches our dmac
-            (0x20, 0, 0, 0x00000008),  # (000) ld    [8]
-            (0x15, 0, 22, dmac_lo),    # (001) jeq   SMAC 31-0     jt 2  jf 24
-            (0x28, 0, 0, 0x00000006),  # (002) ldh   [6]
-            (0x15, 0, 20, dmac_hi),    # (003) jeq   SMAC 47-32    jt 4  jf 24
+            # # smac matches our dmac
+            # (0x20, 0, 0, 0x00000008),  # (000) ld    [8]
+            # (0x15, 0, 22, dmac_lo),    # (001) jeq   SMAC 31-0     jt 2  jf 24
+            # (0x28, 0, 0, 0x00000006),  # (002) ldh   [6]
+            # (0x15, 0, 20, dmac_hi),    # (003) jeq   SMAC 47-32    jt 4  jf 24
             # dmac matches our smac
             (0x20, 0, 0, 0x00000002),  # (004) ld    [2]
             (0x15, 0, 18, smac_lo),    # (005) jeq   DMAC 31-0     jt 6  jf 24
@@ -521,12 +515,12 @@ def attach_bpf(eth, ip, tcp, sock):
         #     <(tcpdump -d "${E} && ${I} && ${T}" | sed -e 's/^/# /') \
         #     <(tcpdump -dd "${E} && ${I} && ${T}" | sed -e 's/{ /(/;s/ }/)/')
         instructions = [
-            # smac matches our dmac
-            (0x20, 0, 0, 0x00000008),   # (000) ld   [8]
-            (0x15, 0, 31, smac_lo),     # (001) jeq  SMAC 31-0   jt 2  jf 33
-            (0x28, 0, 0, 0x00000006),   # (002) ldh  [6]
-            (0x15, 0, 29, smac_hi),     # (003) jeq  SMAC 47-32  jt 4  jf 33
-            (0x20, 0, 0, 0x00000002),   # (004) ld   [2]
+            # # smac matches our dmac
+            # (0x20, 0, 0, 0x00000008),   # (000) ld   [8]
+            # (0x15, 0, 31, smac_lo),     # (001) jeq  SMAC 31-0   jt 2  jf 33
+            # (0x28, 0, 0, 0x00000006),   # (002) ldh  [6]
+            # (0x15, 0, 29, smac_hi),     # (003) jeq  SMAC 47-32  jt 4  jf 33
+            # (0x20, 0, 0, 0x00000002),   # (004) ld   [2]
             # dmac matches our smac
             (0x15, 0, 27, dmac_lo),     # (005) jeq  DMAC 31-0   jt 6  jf 33
             (0x28, 0, 0, 0x00000000),   # (006) ldh  [0]
@@ -589,15 +583,8 @@ def nexthop_meta(nhip):
 
     """
 
-    def _subprocess(args):
-        p = sp.Popen(args, stdout=sp.PIPE, stderr=sp.PIPE, shell=True)
-        stdout, stderr = p.communicate()
-        if p.returncode:
-            raise ValueError("Unable to parse `ip` command output")
-        return stdout, stderr
-
     mask = 32 if VERSION == 4 else 128
-    cmd = (
+    args = (
         NEXTHOP_META.strip()
         .replace("__VERSION__", str(VERSION))
         .replace("__NHIP__", nhip)
@@ -605,11 +592,23 @@ def nexthop_meta(nhip):
         .replace("\n", "; ")
     )
     try:
-        stdout, _ = _subprocess(cmd)
+        stdout, _ = _subprocess(args)
         intf, dmac, smac, sip = stdout.split()
     except ValueError:
-        raise ValueError("Unable to parse `ip` command output")
+        raise ValueError("Unable to parse 'ip' command output")
     return intf, dmac, smac, sip
+
+
+def pre_ping(nhip):
+    """Populate the ARP table with the IP address of the nexthop router.
+
+    Args:
+        nhip (str): The IP address of the nexthop router.
+
+    """
+
+    args = "ping -%s -c1 %s" % (VERSION, nhip)
+    _subprocess(args, raise_for_status=False)
 
 
 def send_recv(pkt, intf):
@@ -650,20 +649,20 @@ def send_recv(pkt, intf):
                     continue
 
                 try:
-                    buffer = sock.recv(65535)
+                    buff = sock.recv(65535)
                 except sock.error as e:
                     raise IOError("Socket error: {0}".format(e))
 
                 offset = 0
                 try:
-                    rcv_eth = Ethernet.from_buffer_copy(buffer)
+                    rcv_eth = Ethernet.from_buffer_copy(buff)
                     offset += len(rcv_eth)
 
                     IP = IPv4 if VERSION == 4 else IPv6
-                    rcv_ip = IP.from_buffer_copy(buffer, offset)
+                    rcv_ip = IP.from_buffer_copy(buff, offset)
                     offset += len(rcv_ip)
 
-                    rcv_tcp = TCP.from_buffer_copy(buffer, offset)
+                    rcv_tcp = TCP.from_buffer_copy(buff, offset)
                     offset += len(rcv_tcp)
 
                     if rcv_tcp.flags == TCP.FLAGS["SYN"] | TCP.FLAGS["ACK"]:
@@ -704,17 +703,15 @@ def scan(dip, dport, nhip, vrf="default"):
             raise ValueError("DIP and NHIP version mismatch")
 
         with VRF(name=vrf):
-            intf, dmac, smac, sip = nexthop_meta(nhip)
+            pre_ping(nhip)
+            try:
+                intf, dmac, smac, sip = nexthop_meta(nhip)
+            except ValueError:
+                return False
             with Port() as sport:
-                pkt = Packet(
-                    dmac=dmac,
-                    smac=smac,
-                    sip=sip,
-                    dip=dip,
-                    sport=sport.num,
-                    dport=dport,
-                )
+                pkt = Packet(dmac=dmac, smac=smac, sip=sip, dip=dip, sport=sport.num, dport=dport,)
                 result = send_recv(pkt, intf)
+
     except Exception as e:
         raise RuntimeError(e)
     return result
@@ -729,16 +726,10 @@ if __name__ == "__main__":
     )
     synscan_group = parser.add_argument_group("synscan arguments")
     synscan_group.add_argument(
-        "dip",
-        type=str,
-        help="IP address of the target device (required)",
-        metavar="IP",
+        "dip", type=str, help="IP address of the target device (required)", metavar="IP",
     )
     synscan_group.add_argument(
-        "dport",
-        type=int,
-        help="TCP port of the target service (required)",
-        metavar="PORT",
+        "dport", type=int, help="TCP port of the target service (required)", metavar="PORT",
     )
     synscan_group.add_argument(
         "-n",

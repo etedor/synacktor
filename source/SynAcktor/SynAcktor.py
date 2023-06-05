@@ -18,7 +18,7 @@ except ImportError:
 
 sys.dont_write_bytecode = True
 
-__version__ = "2020.04.09.1"
+__version__ = "2023.06.05.0"
 
 
 def is_file(path):
@@ -45,9 +45,7 @@ def vrf_exists(vrf, vrf_mgr):
     return vrf_mgr.exists(vrf)
 
 
-class SynAcktorAgent(
-    eossdk.AgentHandler, eossdk.TimeoutHandler, eossdk.VrfHandler
-):
+class SynAcktorAgent(eossdk.AgentHandler, eossdk.TimeoutHandler, eossdk.VrfHandler):
     def __init__(self, agent_mgr, eapi_mgr, timeout_mgr, vrf_mgr):
         self.tracer = eossdk.Tracer("SynAcktorPythonAgent")
         eossdk.AgentHandler.__init__(self, agent_mgr)
@@ -285,9 +283,7 @@ class SynAcktorAgent(
         def action(conf, healthy, verb):
             self.log("{0}:{1} has {2}ed".format(self.ip, self.dport, verb))
             self.agent_mgr.status_set("Last action", verb)
-            self.agent_mgr.status_set(
-                "Last {0}".format(verb), self.show_clock()
-            )
+            self.agent_mgr.status_set("Last {0}".format(verb), self.show_clock())
             self.configure(conf)
             self.healthy = healthy
 
@@ -329,9 +325,7 @@ class SynAcktorAgent(
             plus = "+"
         if len(self.results) >= 2 and result != self.results[-2]:
             self.counter = 1
-        health = "{0}, last {1}{2}".format(
-            str(result).lower(), self.counter, plus
-        )
+        health = "{0}, last {1}{2}".format(str(result).lower(), self.counter, plus)
         self.agent_mgr.status_set("Healthy", health)
 
         # prevent results list from growing indefinitely
@@ -377,9 +371,7 @@ class SynAcktorAgent(
 
 def main():
     syslog.openlog(
-        ident="SynAcktor-ALERT-AGENT",
-        logoption=syslog.LOG_PID,
-        facility=syslog.LOG_LOCAL4,
+        ident="SynAcktor-ALERT-AGENT", logoption=syslog.LOG_PID, facility=syslog.LOG_LOCAL4,
     )
 
     sdk = eossdk.Sdk()
